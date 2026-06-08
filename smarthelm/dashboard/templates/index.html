@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartHelm — Drowsiness Monitor</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .sensor-card { border-top: 2px solid #00bcd4; }
+    .hr-value  { font-size: 2rem; font-weight: 700; color: #f44336; }
+    .spo2-value{ font-size: 2rem; font-weight: 700; color: #4caf50; }
+    .sensor-row{ display:flex; justify-content:space-between; align-items:center; margin:8px 0; }
+    .sensor-label { color: #888; font-size: .8rem; text-transform: uppercase; letter-spacing:.05em; }
+    .finger-badge { font-size:.75rem; padding:2px 8px; border-radius:10px; }
+    .finger-on  { background:#1b5e20; color:#a5d6a7; }
+    .finger-off { background:#333; color:#777; }
+    .test-btn {
+      margin-top: 12px; width: 100%; padding: 8px;
+      background: #ff9800; color: #000; border: none;
+      border-radius: 6px; cursor: pointer; font-weight: 700;
+      font-size: .85rem; letter-spacing: .05em;
+    }
+    .test-btn:hover { background: #ffc107; }
+    .test-btn:active { transform: scale(.97); }
+  </style>
+</head>
+<body>
+
+  <!-- ===== Header ===== -->
+  <header>
+    <div class="logo">&#9651; SmartHelm</div>
+    <div class="header-right">
+      <span id="detection-mode" class="mode-badge">EAR</span>
+      <span id="fps-display" class="fps">-- FPS</span>
+      <span id="connection-dot" class="dot dot-grey" title="Backend connection"></span>
+    </div>
+  </header>
+
+  <!-- ===== Alert Banner ===== -->
+  <div id="alert-banner" class="alert-banner hidden">
+    <span class="alert-icon">&#9888;</span>
+    DROWSINESS DETECTED — PLEASE PULL OVER
+    <span class="alert-icon">&#9888;</span>
+  </div>
+
+  <!-- ===== Camera Start Button ===== -->
+  <div style="text-align:center;padding:8px;background:#111">
+    <button id="start-cam-btn" onclick="startCameras()"
+      style="padding:10px 32px;background:#00bcd4;color:#000;border:none;
+             border-radius:6px;font-weight:700;font-size:.95rem;cursor:pointer">
+      ▶ Start Cameras
+    </button>
+  </div>
+
+  <!-- ===== Main Grid ===== -->
+  <main>
+
+    <!-- Camera feeds -->
+    <section class="camera-grid">
+      <div class="cam-box cam-primary">
+        <div class="cam-label">
+          <span class="cam-dot active"></span>
+          CAM 1 — Rider (Detection Active)
+        </div>
+        <img data-src="/video_feed/cam1" alt="Camera 1" class="cam-feed" id="cam1-img">
+        <div class="cam-overlay">
+          <span id="eye-state-overlay" class="eye-state-overlay unknown">UNKNOWN</span>
+        </div>
+      </div>
+
+      <div class="cam-secondary-group">
+        <div class="cam-box">
+          <div class="cam-label">
+            <span class="cam-dot"></span>
+            CAM 2 — Road Ahead
+          </div>
+          <img data-src="/video_feed/cam2" alt="Camera 2" class="cam-feed" id="cam2-img">
+        </div>
+
+        <div class="cam-box">
+          <div class="cam-label">
+            <span class="cam-dot"></span>
+            CAM 3 — Rear Traffic
+          </div>
+          <img data-src="/video_feed/cam3" alt="Camera 3" class="cam-feed" id="cam3-img">
+        </div>
+      </div>
+    </section>
+
+    <!-- Status panel -->
+    <aside class="status-panel">
+
+      <!-- Eye state card -->
+      <div class="card">
+        <div class="card-title">Eye State</div>
+        <div id="eye-state-badge" class="badge unknown">UNKNOWN</div>
+        <div class="sub-info">
+          Confidence: <span id="confidence-val">--</span>
+        </div>
+        <div class="sub-info">
+          EAR: <span id="ear-val">--</span>
+        </div>
+      </div>
+
+      <!-- PERCLOS card -->
+      <div class="card">
+        <div class="card-title">PERCLOS (60s window)</div>
+        <div class="perclos-value">
+          <span id="perclos-val">0</span>%
+        </div>
+        <div class="perclos-bar-bg">
+          <div id="perclos-bar-fill" class="perclos-bar-fill" style="width:0%"></div>
+        </div>
+        <div class="sub-info">Threshold: 30%</div>
+      </div>
+
+      <!-- Closure timer card -->
+      <div class="card">
+        <div class="card-title">Continuous Closure</div>
+        <div class="closure-value">
+          <span id="closure-val">0.0</span>s
+        </div>
+        <div class="sub-info">Trigger: 1.5s</div>
+      </div>
+
+      <!-- Vital signs card (MAX30102) -->
+      <div class="card sensor-card">
+        <div class="card-title">Vital Signs — MAX30102</div>
+
+        <div class="sensor-row">
+          <div>
+            <div class="sensor-label">Heart Rate</div>
+            <div class="hr-value"><span id="hr-val">--</span> <small style="font-size:1rem">BPM</small></div>
+          </div>
+          <div>
+            <div class="sensor-label">SpO2</div>
+            <div class="spo2-value"><span id="spo2-val">--</span> <small style="font-size:1rem">%</small></div>
+          </div>
+        </div>
+
+        <div class="stat-row" style="margin-top:6px">
+          <span class="stat-label">Finger</span>
+          <span id="finger-val" class="finger-badge finger-off">Not detected</span>
+        </div>
+
+        <button class="test-btn" onclick="testBuzzer()">&#128276; Test Buzzer</button>
+        <div id="buzzer-status" style="text-align:center;font-size:.75rem;color:#888;margin-top:4px;min-height:16px"></div>
+      </div>
+
+      <!-- System stats -->
+      <div class="card card-stats">
+        <div class="card-title">System</div>
+        <div class="stat-row">
+          <span class="stat-label">FPS</span>
+          <span id="fps-val" class="stat-value">--</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Latency</span>
+          <span id="latency-val" class="stat-value">-- ms</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Face</span>
+          <span id="face-val" class="stat-value">--</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Mode</span>
+          <span id="mode-val" class="stat-value">--</span>
+        </div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- ===== Event History ===== -->
+  <section class="event-section">
+    <div class="event-header">
+      <h2>Recent Alerts</h2>
+      <span id="event-count" class="event-count">0 events</span>
+    </div>
+    <div class="event-table-wrap">
+      <table class="event-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Type</th>
+            <th>PERCLOS</th>
+            <th>Closure (s)</th>
+          </tr>
+        </thead>
+        <tbody id="event-list">
+          <tr><td colspan="4" class="no-events">No alerts yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

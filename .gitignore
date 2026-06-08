@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.env
+*.log
+logs/
+*.csv
+*.jpg
+*.jpeg
+*.png
+.DS_Store
+*.task
+face_landmarker.task
+models/*.onnx
