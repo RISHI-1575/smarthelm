@@ -193,52 +193,97 @@ def test_esp32_cams():
     sep("TEST 5 — ESP32-CAMs  (CAM2 + CAM3)")
     import urllib.request
 
+    # Try /capture on port 80, fallback to port 81
     cams = [
-        (f"http://{CAM2_IP}/capture", "CAM2 — Road Ahead"),
-        (f"http://{CAM3_IP}/capture", "CAM3 — Rear Traffic"),
+        (CAM2_IP, "CAM2 — Road Ahead"),
+        (CAM3_IP, "CAM3 — Rear Traffic"),
     ]
     all_ok = True
-    for url, label in cams:
-        print(f"  Pinging {label} ({url}) …", end=" ", flush=True)
-        try:
-            r = urllib.request.urlopen(url, timeout=4)
-            data = r.read(64)
-            # JPEG starts with FF D8
-            if data[:2] == b'\xff\xd8':
-                print(f"{G}✓ LIVE FRAME{RE}")
-                ok(f"{label} streaming")
-            else:
-                print(f"{Y}reachable but unexpected data{RE}")
-                info(f"{label} — HTTP OK but not a JPEG (check /capture endpoint)")
-        except urllib.error.HTTPError as e:
-            print(f"{Y}HTTP {e.code}{RE}")
-            info(f"{label} reachable — try http://{url.split('/')[2]} in browser")
-        except Exception as e:
-            print(f"{R}✗ OFFLINE{RE}")
-            fail(f"{label} not reachable — {e}")
-            print(f"     → Is the ESP32-CAM powered and on the Pi hotspot?")
-            print(f"     → Check IP:  nmap -sn 10.42.0.0/24")
+    for ip, label in cams:
+        endpoints = [
+            f"http://{ip}/capture",
+            f"http://{ip}:81/capture",
+            f"http://{ip}:80/capture",
+        ]
+        found = False
+        for url in endpoints:
+            print(f"  {label} — trying {url} …", end=" ", flush=True)
+            try:
+                r    = urllib.request.urlopen(url, timeout=4)
+                data = r.read(64)
+                if data[:2] == b'\xff\xd8':
+                    print(f"{G}LIVE JPEG ✓{RE}")
+                    ok(f"{label} streaming")
+                    found = True
+                    break
+                else:
+                    print(f"{Y}reachable, not JPEG{RE}")
+                    found = True
+                    break
+            except urllib.error.HTTPError as e:
+                print(f"{Y}HTTP {e.code}{RE}")
+                found = True
+                break
+            except Exception:
+                print(f"{R}✗{RE}")
+
+        if not found:
+            fail(f"{label} ({ip}) not reachable on any port")
+            print(f"     → Is it powered and on Pi hotspot?")
+            print(f"     → Confirm IP:  nmap -sn 10.42.0.0/24")
             all_ok = False
 
     return all_ok
 
 
 # ─────────────────────────────────────────────────────
-# 6. SIM800L  (GSM UART)
+# 6. SIM800L  (GSM UART)  — pure stdlib, no pyserial needed
 # ─────────────────────────────────────────────────────
 def test_sim800l():
     sep("TEST 6 — SIM800L  (UART /dev/ttyAMA0)")
+    import os, termios
+
+    fd = None
     try:
-        import serial
-        info(f"Opening {SIM_PORT} @ {SIM_BAUD} baud …")
-        ser = serial.Serial(SIM_PORT, SIM_BAUD, timeout=2)
-        time.sleep(0.8)
+        info(f"Opening {SIM_PORT} @ {SIM_BAUD} baud  (stdlib termios)…")
+        fd = os.open(SIM_PORT, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+
+        # Configure UART: 8N1, raw mode, given baud
+        baud_const = {
+            9600: termios.B9600,   19200: termios.B19200,
+            38400: termios.B38400, 57600: termios.B57600,
+            115200: termios.B115200,
+        }[SIM_BAUD]
+        attrs = termios.tcgetattr(fd)            # [iflag,oflag,cflag,lflag,ispeed,ospeed,cc]
+        attrs[0] = 0                              # iflag: raw input
+        attrs[1] = 0                              # oflag: raw output
+        attrs[3] = 0                              # lflag: no echo/canonical
+        attrs[2] |= (termios.CLOCAL | termios.CREAD)
+        attrs[2] &= ~termios.PARENB               # no parity
+        attrs[2] &= ~termios.CSTOPB               # 1 stop bit
+        attrs[2] &= ~termios.CSIZE
+        attrs[2] |= termios.CS8                   # 8 data bits
+        attrs[4] = baud_const                     # ispeed
+        attrs[5] = baud_const                     # ospeed
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
+        termios.tcflush(fd, termios.TCIOFLUSH)
+        time.sleep(0.5)
 
         def at(cmd, wait=1.2):
-            ser.reset_input_buffer()
-            ser.write((cmd + '\r\n').encode())
+            termios.tcflush(fd, termios.TCIFLUSH)
+            os.write(fd, (cmd + '\r\n').encode())
             time.sleep(wait)
-            return ser.read(ser.in_waiting).decode(errors='ignore').strip()
+            buf = b''
+            for _ in range(20):
+                try:
+                    chunk = os.read(fd, 256)
+                    if chunk:
+                        buf += chunk
+                    else:
+                        break
+                except BlockingIOError:
+                    time.sleep(0.05)
+            return buf.decode(errors='ignore').strip()
 
         r = at('AT')
         if 'OK' not in r:
@@ -247,7 +292,7 @@ def test_sim800l():
             print("            dtoverlay=disable-bt")
             print("            enable_uart=1")
             print("          then: sudo reboot")
-            ser.close()
+            print("     Also check: TX/RX not swapped, SIM800L has its own power + 1000µF cap")
             return False
 
         ok("AT → OK  (SIM800L alive)")
@@ -256,7 +301,6 @@ def test_sim800l():
         info(f"Model:  {r.splitlines()[0] if r else '—'}")
 
         r = at('AT+CSQ')
-        # 99 = no signal/no SIM
         info(f"Signal: {r.strip()}" + ("  ⚠ no SIM/signal" if '99,99' in r else ""))
 
         r = at('AT+CPIN?')
@@ -270,22 +314,21 @@ def test_sim800l():
         r = at('AT+CREG?')
         info(f"Network reg: {r.strip()}")
 
-        ser.close()
         ok("SIM800L test done")
         return True
 
-    except ImportError:
-        fail("pyserial not installed — run: pip install pyserial")
+    except FileNotFoundError:
+        fail(f"{SIM_PORT} does not exist — add dtoverlay=disable-bt + enable_uart=1 then reboot")
+        return False
+    except PermissionError:
+        fail(f"Permission denied on {SIM_PORT} — run with sudo")
         return False
     except Exception as e:
-        msg = str(e)
-        if 'Permission denied' in msg:
-            fail(f"Permission denied on {SIM_PORT} — run with sudo")
-        elif 'No such file' in msg:
-            fail(f"{SIM_PORT} does not exist — add dtoverlay=disable-bt + enable_uart=1 then reboot")
-        else:
-            fail(msg)
+        fail(str(e))
         return False
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 # ─────────────────────────────────────────────────────

@@ -29,7 +29,7 @@
 
   let connected = false;
 
-  // ── Status polling — every 500ms ──────────────────────────────────
+  // ── Status polling — every 1s ─────────────────────────────────────
   function pollStatus() {
     fetch('/api/status')
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
@@ -101,7 +101,7 @@
     els.connectionDot.title     = ok ? 'Connected' : 'Disconnected';
   }
 
-  // ── Event history polling — every 3s ──────────────────────────────
+  // ── Event history polling — every 5s ──────────────────────────────
   function pollEvents() {
     fetch('/api/events')
       .then(r => r.json())
@@ -150,7 +150,7 @@
   // ── Video feeds — load only when button clicked ───────────────────
   let feedsLoaded = false;
 
-  function startSnapshots(imgId, endpoint, dotSelector, fps) {
+  function startSnapshots(imgId, endpoint, dotSelector, intervalMs) {
     const img = document.getElementById(imgId);
     if (!img) return;
     const dot = document.querySelector(dotSelector);
@@ -158,7 +158,7 @@
     function next() { img.src = endpoint + '?t=' + (++t); }
     img.onload = function () { if (dot) dot.classList.add('active'); };
     next();
-    setInterval(next, fps);
+    setInterval(next, intervalMs);
   }
 
   window.startCameras = function () {
@@ -166,8 +166,8 @@
     feedsLoaded = true;
     const btn = document.getElementById('start-cam-btn');
     if (btn) { btn.textContent = 'Cameras ON ✓'; btn.disabled = true; }
-    startSnapshots('cam1-img', '/snapshot/cam1', '.cam-primary .cam-dot',    150); // ~7fps
-    startSnapshots('cam2-img', '/snapshot/cam2', '.cam-secondary-group .cam-box:nth-child(1) .cam-dot', 200); // ~5fps
+    startSnapshots('cam1-img', '/snapshot/cam1', '.cam-primary .cam-dot', 100); // ~10fps
+    startSnapshots('cam2-img', '/snapshot/cam2', '.cam-secondary-group .cam-box:nth-child(1) .cam-dot', 200);
     startSnapshots('cam3-img', '/snapshot/cam3', '.cam-secondary-group .cam-box:nth-child(2) .cam-dot', 200);
   };
 
@@ -176,5 +176,10 @@
   pollEvents();
   setInterval(pollStatus, 1000);
   setInterval(pollEvents, 5000);
+
+  // Auto-start cameras for automated screen recording: open /?autostart=1
+  if (/[?&]autostart=1/.test(window.location.search)) {
+    window.startCameras();
+  }
 
 })();

@@ -2,7 +2,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+venv/
+*/venv/
+eyes_test/venv/
 .env
+*serviceAccount*.json
+serviceAccount.json
 *.log
 logs/
 *.csv

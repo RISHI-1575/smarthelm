@@ -234,7 +234,7 @@ def snapshot_cam1():
     if frame is None:
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         cv2.putText(frame, "No Frame", (240, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (80,80,80), 2)
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
     return Response(buf.tobytes(), mimetype="image/jpeg", headers={"Cache-Control": "no-cache"})
 
 
@@ -257,7 +257,7 @@ def _snapshot_stream(stream, label: str):
     if frame is None:
         from streams import StaticFrameStream
         _, frame = StaticFrameStream(label).read()
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
     return Response(buf.tobytes(), mimetype="image/jpeg", headers={"Cache-Control": "no-cache"})
 
 

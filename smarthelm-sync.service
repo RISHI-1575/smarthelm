@@ -1,0 +1,16 @@
+[Unit]
+Description=SmartHelm Firebase Sync — pushes telemetry to Cloud Firestore
+After=network-online.target smarthelm.service
+Wants=network-online.target
+# Helmet keeps working even if this is down; this just mirrors data to the cloud.
+
+[Service]
+Type=simple
+User=vyrrs
+WorkingDirectory=/home/vyrrs/HelmNet/smarthelm/backend
+ExecStart=/home/vyrrs/smarthelm-venv/bin/python firebase_sync.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

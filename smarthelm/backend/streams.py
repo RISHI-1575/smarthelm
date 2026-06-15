@@ -55,11 +55,16 @@ class PiCameraStream:
             '--inline',
             '--nopreview',
             '--codec',     'mjpeg',
+            '--quality',   '90',      # camera-side JPEG quality (default ~50 = blocky)
             '--listen',
             '--width',     str(w),
             '--height',    str(h),
-            '--framerate', '15',      # 15fps saves CPU vs 30fps
-            '--brightness','0.1',
+            '--framerate', '12',      # lower fps → longer exposure → brighter, less gain noise
+            '--denoise',   'cdn_hq',  # hardware denoise — kills low-light grain
+            '--brightness','0.15',
+            '--contrast',  '1.1',
+            '--sharpness', '1.5',
+            '--saturation','1.1',
             '--awb',       'auto',
             '-o', f'tcp://127.0.0.1:{self.TCP_PORT}',
         ]
@@ -125,10 +130,11 @@ class MJPEGStream:
     Auto-reconnects on failure.
     """
 
-    def __init__(self, source: str, name: str = "CAM", reconnect_delay: float = 3.0):
+    def __init__(self, source: str, name: str = "CAM", reconnect_delay: float = 3.0, flip: bool = False):
         self.source         = source
         self.name           = name
         self.reconnect_delay = reconnect_delay
+        self._flip          = flip  # True = rotate 180° (upside-down mount)
 
         self._frame     = None
         self._lock      = threading.Lock()
@@ -185,6 +191,8 @@ class MJPEGStream:
                     cv2.IMREAD_COLOR
                 )
                 if frame is not None:
+                    if self._flip:
+                        frame = cv2.rotate(frame, cv2.ROTATE_180)
                     with self._lock:
                         self._frame     = frame
                         self._connected = True
@@ -259,19 +267,18 @@ def make_streams(cam1_url, cam2_url, cam3_url):
         cam1 = _make_mjpeg_or_placeholder(cam1_url, "CAM1", webcam_priority=True)
 
     # CAM2 and CAM3 — ESP32-CAM streams
-    cam2 = _make_mjpeg_or_placeholder(cam2_url, "CAM2")
-    cam3 = _make_mjpeg_or_placeholder(cam3_url, "CAM3")
+    cam2 = _make_mjpeg_or_placeholder(cam2_url, "CAM2", flip=False)
+    cam3 = _make_mjpeg_or_placeholder(cam3_url, "CAM3", flip=True)  # mounted upside-down
 
     return cam1, cam2, cam3
 
 
-def _make_mjpeg_or_placeholder(url, name, webcam_priority=False):
+def _make_mjpeg_or_placeholder(url, name, webcam_priority=False, flip=False):
     if not url:
         logger.warning(f"{name}: no URL configured — using placeholder")
         return StaticFrameStream(name)
-    # Connect directly — skip probe, MJPEGStream reconnect loop handles failures
     logger.info(f"{name}: connecting to {url}")
-    return MJPEGStream(url, name=name)
+    return MJPEGStream(url, name=name, flip=flip)
 
 
 # kept for backward compat with app.py import

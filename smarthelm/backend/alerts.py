@@ -125,18 +125,67 @@ class AlertManager:
         logger.warning("Buzzer: GPIO not ready — buzzer cannot fire")
 
     def _sms_worker(self):
+        msg = "SmartHelm Alert: Rider drowsiness detected. Please check in immediately."
         try:
-            from gsmmodem.modem import GsmModem
-            modem = GsmModem(config.SMS_PORT, config.SMS_BAUD)
-            modem.connect()
-            modem.sendSms(
-                config.EMERGENCY_CONTACT,
-                "SmartHelm Alert: Rider drowsiness detected. Please check in immediately."
-            )
-            modem.close()
+            _send_sms_via_at(config.SMS_PORT, config.SMS_BAUD,
+                             config.EMERGENCY_CONTACT, msg)
             logger.info(f"SMS sent to {config.EMERGENCY_CONTACT}")
         except Exception as e:
             logger.warning(f"SMS failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# SMS via raw AT commands (stdlib termios — no pyserial / gsmmodem needed)
+# ---------------------------------------------------------------------------
+
+def _send_sms_via_at(port: str, baud: int, number: str, text: str):
+    """Send one SMS over the SIM800L using AT commands and stdlib termios."""
+    import termios
+
+    bmap = {4800: termios.B4800, 9600: termios.B9600, 19200: termios.B19200,
+            38400: termios.B38400, 57600: termios.B57600, 115200: termios.B115200}
+    if baud not in bmap:
+        raise ValueError(f"unsupported baud {baud}")
+
+    fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    try:
+        a = termios.tcgetattr(fd)
+        a[0] = 0; a[1] = 0; a[3] = 0
+        a[2] |= (termios.CLOCAL | termios.CREAD)
+        a[2] &= ~termios.PARENB; a[2] &= ~termios.CSTOPB; a[2] &= ~termios.CSIZE
+        a[2] |= termios.CS8
+        a[4] = bmap[baud]; a[5] = bmap[baud]
+        termios.tcsetattr(fd, termios.TCSANOW, a)
+        try:
+            termios.tcflush(fd, termios.TCIOFLUSH)
+        except (termios.error, OSError):
+            pass
+        time.sleep(0.3)
+
+        def cmd(data: bytes, wait: float = 1.0) -> str:
+            os.write(fd, data)
+            time.sleep(wait)
+            buf = b""
+            for _ in range(60):
+                try:
+                    c = os.read(fd, 256)
+                    if c: buf += c
+                    else: break
+                except BlockingIOError:
+                    time.sleep(0.03)
+                except OSError:
+                    break
+            return buf.decode(errors="ignore")
+
+        if "OK" not in cmd(b"AT\r\n"):
+            raise RuntimeError("no AT response from modem")
+        cmd(b"AT+CMGF=1\r\n")                                   # text mode
+        cmd(b'AT+CMGS="' + number.encode() + b'"\r', wait=1.5)  # wait for '>' prompt
+        resp = cmd(text.encode() + b"\x1a", wait=10.0)          # Ctrl-Z sends it
+        if "+CMGS" not in resp and "OK" not in resp:
+            raise RuntimeError(f"send failed: {resp.strip()!r}")
+    finally:
+        os.close(fd)
 
 
 # ---------------------------------------------------------------------------

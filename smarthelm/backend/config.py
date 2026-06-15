@@ -4,8 +4,10 @@
 # Camera
 # ---------------------------------------------------------------------------
 USE_PI_CAMERA: bool = True       # True = use CSI Pi camera for CAM1
-PI_CAMERA_WIDTH: int  = 640
-PI_CAMERA_HEIGHT: int = 480
+# Capture resolution — higher = clearer feed but more CPU on the 2GB Pi.
+# 960x720 (4:3) is a clarity bump over 640x480; drop back if FPS sags.
+PI_CAMERA_WIDTH: int  = 960
+PI_CAMERA_HEIGHT: int = 720
 
 USE_WEBCAM_FALLBACK: bool = False
 WEBCAM_INDEX: int = 0
